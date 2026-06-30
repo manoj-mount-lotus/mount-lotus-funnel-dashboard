@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', sans-serif;
+  --font-jetbrains-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  background-color: #F6F7FA;
+  color: #0B2545;
+}
+
+/* Custom scrollbar style for date pills */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 5px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #E4E7ED;
+  border-radius: 10px;
+}
