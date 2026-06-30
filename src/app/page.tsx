@@ -34,7 +34,7 @@ export default function PublicDashboard() {
         const { data, error: fetchError } = await supabase
           .from('daily_funnel_reports')
           .select('*')
-          .order('report_date', { ascending: true });
+          .order('report_date', { ascending: false });
 
         if (fetchError) {
           throw fetchError;
@@ -43,7 +43,7 @@ export default function PublicDashboard() {
         setReports(data || []);
         if (data && data.length > 0) {
           // Select the latest date by default
-          setSelectedDate(data[data.length - 1].report_date);
+          setSelectedDate(data[0].report_date);
         }
       } catch (err: any) {
         console.error('Error fetching dashboard data:', err);
@@ -58,7 +58,7 @@ export default function PublicDashboard() {
   }, []);
 
   // Active report configuration
-  const activeReport = reports.find(r => r.report_date === selectedDate) || reports[reports.length - 1];
+  const activeReport = reports.find(r => r.report_date === selectedDate) || reports[0];
 
   // Helper formatting for date
   const formatDateString = (dateStr: string) => {
@@ -403,7 +403,7 @@ export default function PublicDashboard() {
             <div className="w-full h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
-                  data={reports}
+                  data={[...reports].reverse()}
                   margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E4E7ED" />

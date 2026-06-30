@@ -225,8 +225,8 @@ export default function AdminPortal() {
       }
 
       if (resData.data && resData.data.length > 0) {
-        setParsedData(resData.data);
-        setSuccess(`Successfully fetched ${resData.importedCount} records from Google Sheets. Review the preview and click "Confirm Import" to save.`);
+        setSuccess(`Successfully synced and updated ${resData.importedCount} records from Google Sheets.`);
+        fetchReports();
       } else {
         throw new Error('No valid records found in the Google Sheet.');
       }

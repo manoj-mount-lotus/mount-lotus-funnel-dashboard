@@ -1,5 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { createClient as createServerClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
+
+function getSupabaseClient() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+  }
+  return createServerClient();
+}
 
 function normalizeHeader(h: string): string {
   return h.toLowerCase().trim().replace(/[\s_-]+/g, ' ');
@@ -86,6 +98,18 @@ function clampNonNegative(n: number): number {
 
 export async function POST(request: NextRequest) {
   try {
+    // Basic security token check if SYNC_SECRET is set
+    const syncSecret = process.env.SYNC_SECRET;
+    if (syncSecret) {
+      const authHeader = request.headers.get('Authorization');
+      const urlSecret = request.nextUrl.searchParams.get('secret');
+      const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null;
+      
+      if (urlSecret !== syncSecret && bearerToken !== syncSecret) {
+        return NextResponse.json({ error: 'Unauthorized: Invalid or missing sync secret' }, { status: 401 });
+      }
+    }
+
     const { url } = await request.json();
     if (!url) {
       return NextResponse.json({ error: 'Google Sheet URL is required' }, { status: 400 });
@@ -169,6 +193,19 @@ export async function POST(request: NextRequest) {
         mappedRows.push(mappedRow);
       } else if (hasData) {
         skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: 'Missing or invalid Leads Date' });
+      }
+    }
+
+    // Perform automatic database upsert
+    if (mappedRows.length > 0) {
+      const supabase = getSupabaseClient();
+      const { error: upsertError } = await supabase
+        .from('daily_funnel_reports')
+        .upsert(mappedRows, { onConflict: 'report_date' });
+
+      if (upsertError) {
+        console.error('Database sync error:', upsertError);
+        return NextResponse.json({ error: `Failed to save synced records: ${upsertError.message}` }, { status: 500 });
       }
     }
 
