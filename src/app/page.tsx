@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Phone, MousePointerClick, ClipboardCheck, AlertTriangle, Calendar, Award, LogIn, Loader2 } from 'lucide-react';
+import { Phone, MousePointerClick, ClipboardCheck, AlertTriangle, Calendar, Award, LogIn, LogOut, Shield, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
@@ -12,6 +12,16 @@ export default function PublicDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rawError, setRawError] = useState<any>(null);
+
+  const handleSignOut = async () => {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      window.location.href = '/login';
+    } catch (err) {
+      console.error('Error signing out:', err);
+    }
+  };
 
   useEffect(() => {
     async function fetchData() {
@@ -112,9 +122,14 @@ export default function PublicDashboard() {
               <h1 className="text-2xl font-bold tracking-tight">Mount Lotus Eye & ENT Hospital</h1>
               <p className="text-slate-300 text-sm font-mono mt-0.5">Meta ads funnel & call-tracking report</p>
             </div>
-            <Link href="/login" className="flex items-center gap-2 bg-brand-teal text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
-              <LogIn className="w-4 h-4" /> Staff Login
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href="/admin" className="flex items-center gap-1.5 bg-brand-navy border border-slate-700 text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+                <Shield className="w-4 h-4 text-brand-teal" /> Admin Portal
+              </Link>
+              <button onClick={handleSignOut} className="flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
+            </div>
           </div>
         </header>
 
@@ -155,9 +170,14 @@ export default function PublicDashboard() {
               <h1 className="text-2xl font-bold tracking-tight">Mount Lotus Eye & ENT Hospital</h1>
               <p className="text-slate-300 text-sm font-mono mt-0.5">Meta ads funnel & call-tracking report</p>
             </div>
-            <Link href="/login" className="flex items-center gap-2 bg-brand-teal text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
-              <LogIn className="w-4 h-4" /> Staff Login
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href="/admin" className="flex items-center gap-1.5 bg-brand-navy border border-slate-700 text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+                <Shield className="w-4 h-4 text-brand-teal" /> Admin Portal
+              </Link>
+              <button onClick={handleSignOut} className="flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
+            </div>
           </div>
         </header>
 
@@ -167,7 +187,7 @@ export default function PublicDashboard() {
             <Calendar className="w-12 h-12 text-slate-400 mx-auto mb-4" />
             <h2 className="text-xl font-bold text-brand-navy mb-2">No reports yet</h2>
             <p className="text-slate-600 mb-6">Add daily tracking records from the admin panel to view the dashboard.</p>
-            <Link href="/login" className="inline-block bg-brand-teal text-white hover:bg-opacity-90 px-6 py-2.5 rounded-brand font-semibold text-sm transition-all">
+            <Link href="/admin" className="inline-block bg-brand-teal text-white hover:bg-opacity-90 px-6 py-2.5 rounded-brand font-semibold text-sm transition-all">
               Go to Admin Panel
             </Link>
           </div>
@@ -185,9 +205,14 @@ export default function PublicDashboard() {
             <h1 className="text-2xl font-bold tracking-tight">Mount Lotus Eye & ENT Hospital</h1>
             <p className="text-slate-300 text-sm font-mono mt-0.5">Meta ads funnel & call-tracking report</p>
           </div>
-          <Link href="/login" className="flex items-center gap-2 bg-brand-teal text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
-            <LogIn className="w-4 h-4" /> Staff Login
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link href="/admin" className="flex items-center gap-1.5 bg-brand-navy border border-slate-700 text-white hover:bg-opacity-90 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+              <Shield className="w-4 h-4 text-brand-teal" /> Admin Portal
+            </Link>
+            <button onClick={handleSignOut} className="flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:text-white border border-slate-700 hover:bg-slate-700 px-4 py-2 rounded-brand text-sm font-semibold transition-all">
+              <LogOut className="w-4 h-4" /> Sign Out
+            </button>
+          </div>
         </div>
       </header>
 

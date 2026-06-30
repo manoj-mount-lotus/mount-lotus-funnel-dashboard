@@ -29,7 +29,7 @@ export default function LoginPage() {
         throw signInError;
       }
 
-      router.push('/admin');
+      router.push('/');
       router.refresh();
     } catch (err: any) {
       console.error('Login error:', err);
@@ -123,12 +123,6 @@ export default function LoginPage() {
               </button>
             </div>
           </form>
-
-          <div className="mt-6 border-t border-brand-border pt-4 text-center">
-            <Link href="/" className="text-xs text-brand-teal hover:underline font-semibold">
-              ← Return to Public Dashboard
-            </Link>
-          </div>
         </div>
       </div>
     </div>

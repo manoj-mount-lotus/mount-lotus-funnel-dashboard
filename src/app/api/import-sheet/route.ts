@@ -72,6 +72,18 @@ function parseDateValue(val: any): string | null {
   return null;
 }
 
+function findLeadsSheet(workbook: XLSX.WorkBook): { sheet: XLSX.WorkSheet; sheetName: string } {
+  const target = workbook.SheetNames.find(
+    (name) => name.trim().toLowerCase() === 'leads'
+  );
+  const sheetName = target || workbook.SheetNames[0];
+  return { sheet: workbook.Sheets[sheetName], sheetName };
+}
+
+function clampNonNegative(n: number): number {
+  return n < 0 ? 0 : n;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { url } = await request.json();
@@ -89,7 +101,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
       }
       const spreadsheetId = match[1];
-      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
+      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=Leads`;
     }
 
     const response = await fetch(fetchUrl, {
@@ -112,8 +124,7 @@ export async function POST(request: NextRequest) {
     // Read as ArrayBuffer to support both CSV and XLSX binary formats autodetected by sheetjs
     const arrayBuffer = await response.arrayBuffer();
     const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
+    const { sheet, sheetName } = findLeadsSheet(workbook);
     const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
 
     if (rawRows.length === 0) {
@@ -142,7 +153,7 @@ export async function POST(request: NextRequest) {
           } else {
             // Numeric field
             const numVal = value !== null && value !== '' ? Number(value) : 0;
-            mappedRow[dbColumn] = isNaN(numVal) ? 0 : numVal;
+            mappedRow[dbColumn] = clampNonNegative(isNaN(numVal) ? 0 : numVal);
             hasData = true;
           }
         }
@@ -166,7 +177,8 @@ export async function POST(request: NextRequest) {
       data: mappedRows,
       skipped: skippedRows,
       totalCount: rawRows.length,
-      importedCount: mappedRows.length
+      importedCount: mappedRows.length,
+      sheetUsed: sheetName
     });
 
   } catch (err: any) {

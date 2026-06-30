@@ -31,8 +31,10 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Protected /admin route
-  if (request.nextUrl.pathname.startsWith('/admin')) {
+  // Protected routes: Root dashboard and admin portal
+  const isProtectedRoute = request.nextUrl.pathname === '/' || request.nextUrl.pathname.startsWith('/admin');
+
+  if (isProtectedRoute) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = '/login';
@@ -44,7 +46,7 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/login')) {
     if (user) {
       const url = request.nextUrl.clone();
-      url.pathname = '/admin';
+      url.pathname = '/';
       return NextResponse.redirect(url);
     }
   }
