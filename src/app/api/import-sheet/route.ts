@@ -3,14 +3,14 @@ import * as XLSX from 'xlsx';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 
-function getSupabaseClient() {
+async function getSupabaseClient() {
   if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY
     );
   }
-  return createServerClient();
+  return await createServerClient();
 }
 
 function normalizeHeader(h: string): string {
@@ -32,7 +32,36 @@ const headerMapping: { [key: string]: string } = {
   'no appointments from meta': 'no_appointments_from_meta',
   'total cataract surgeries': 'total_cataract_surgeries',
   'total cataract surgery from meta': 'cataract_surgery_from_meta',
-  'cataract surgery from other': 'cataract_surgery_from_other'
+  'cataract surgery from other': 'cataract_surgery_from_other',
+  
+  // New Operations columns
+  'patient visits': 'patient_visits',
+  'visits': 'patient_visits',
+  'testing completed': 'testing_completed',
+  'testing': 'testing_completed',
+  'conversions total': 'conversions_total',
+  'conversions': 'conversions_total',
+  'retention repeat visits': 'retention_repeat_visits',
+  'repeat visits': 'retention_repeat_visits',
+  'retention referrals': 'retention_referrals',
+  'referrals': 'retention_referrals',
+  'retention reviews': 'retention_reviews',
+  'reviews': 'retention_reviews'
+};
+
+const campaignHeaderMapping: { [key: string]: string } = {
+  'date': 'metric_date',
+  'metric date': 'metric_date',
+  'leads date': 'metric_date',
+  'campain name': 'campaign_name',
+  'campaign name': 'campaign_name',
+  'platform': 'platform',
+  'reach': 'reach',
+  'impressions': 'impressions',
+  'video views': 'video_views',
+  'link clicks': 'link_clicks',
+  'whatsapp clicks': 'whatsapp_clicks',
+  'call clicks': 'call_clicks'
 };
 
 function parseDateValue(val: any): string | null {
@@ -84,14 +113,6 @@ function parseDateValue(val: any): string | null {
   return null;
 }
 
-function findLeadsSheet(workbook: XLSX.WorkBook): { sheet: XLSX.WorkSheet; sheetName: string } {
-  const target = workbook.SheetNames.find(
-    (name) => name.trim().toLowerCase() === 'leads'
-  );
-  const sheetName = target || workbook.SheetNames[0];
-  return { sheet: workbook.Sheets[sheetName], sheetName };
-}
-
 function clampNonNegative(n: number): number {
   return n < 0 ? 0 : n;
 }
@@ -110,22 +131,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { url } = await request.json();
+    const { url, type } = await request.json();
     if (!url) {
       return NextResponse.json({ error: 'Google Sheet URL is required' }, { status: 400 });
+    }
+
+    // Auto-detect type if not explicitly provided in request body
+    let isCampaign = type === 'campaign';
+    if (!type) {
+      // Determine by URL sheet param or fallback to checking after fetch
+      isCampaign = url.toLowerCase().includes('campaign') || url.toLowerCase().includes('campain');
     }
 
     let fetchUrl = url;
 
     // Convert standard /edit URLs to the CSV export URL.
-    // If it is a /pub (published) URL, we can fetch it directly as is.
     if (url.includes('/edit') && !url.includes('/pub')) {
       const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
       if (!match) {
         return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
       }
       const spreadsheetId = match[1];
-      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=Leads`;
+      const sheetNameParam = isCampaign ? 'Campain Metrics Daily' : 'Leads';
+      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetNameParam)}`;
     }
 
     const response = await fetch(fetchUrl, {
@@ -148,7 +176,19 @@ export async function POST(request: NextRequest) {
     // Read as ArrayBuffer to support both CSV and XLSX binary formats autodetected by sheetjs
     const arrayBuffer = await response.arrayBuffer();
     const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-    const { sheet, sheetName } = findLeadsSheet(workbook);
+    
+    // Auto-detect sheets inside workbook if type is still ambiguous
+    if (!type && !isCampaign) {
+      isCampaign = workbook.SheetNames.some(
+        (name) => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')
+      );
+    }
+
+    const targetSheetName = isCampaign
+      ? (workbook.SheetNames.find(name => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')) || workbook.SheetNames[0])
+      : (workbook.SheetNames.find(name => name.trim().toLowerCase() === 'leads') || workbook.SheetNames[0]);
+
+    const sheet = workbook.Sheets[targetSheetName];
     const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
 
     if (rawRows.length === 0) {
@@ -158,6 +198,8 @@ export async function POST(request: NextRequest) {
     // Map rows to database schema
     const mappedRows: any[] = [];
     const skippedRows: any[] = [];
+    const currentMapping = isCampaign ? campaignHeaderMapping : headerMapping;
+    const dateField = isCampaign ? 'metric_date' : 'report_date';
 
     for (let idx = 0; idx < rawRows.length; idx++) {
       const row = rawRows[idx];
@@ -166,14 +208,17 @@ export async function POST(request: NextRequest) {
 
       for (const [key, value] of Object.entries(row)) {
         const normalizedKey = normalizeHeader(key);
-        const dbColumn = headerMapping[normalizedKey];
+        const dbColumn = currentMapping[normalizedKey];
         if (dbColumn) {
-          if (dbColumn === 'report_date') {
+          if (dbColumn === dateField) {
             const parsedDate = parseDateValue(value);
             if (parsedDate) {
               mappedRow[dbColumn] = parsedDate;
               hasData = true;
             }
+          } else if (dbColumn === 'campaign_name' || dbColumn === 'platform') {
+            mappedRow[dbColumn] = value !== null ? String(value).trim() : '';
+            hasData = true;
           } else {
             // Numeric field
             const numVal = value !== null && value !== '' ? Number(value) : 0;
@@ -183,25 +228,32 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (mappedRow.report_date) {
-        // Fill default zeros for missing columns to prevent database constraints errors
-        for (const col of Object.values(headerMapping)) {
-          if (col !== 'report_date' && mappedRow[col] === undefined) {
-            mappedRow[col] = 0;
+      if (mappedRow[dateField]) {
+        if (isCampaign && !mappedRow.campaign_name) {
+          skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: 'Missing Campaign Name' });
+        } else {
+          // Fill default zeros for missing columns to prevent database constraints errors
+          for (const col of Object.values(currentMapping)) {
+            if (col !== dateField && col !== 'campaign_name' && col !== 'platform' && mappedRow[col] === undefined) {
+              mappedRow[col] = 0;
+            }
           }
+          mappedRows.push(mappedRow);
         }
-        mappedRows.push(mappedRow);
       } else if (hasData) {
-        skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: 'Missing or invalid Leads Date' });
+        skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: `Missing or invalid ${isCampaign ? 'Date' : 'Leads Date'}` });
       }
     }
 
     // Perform automatic database upsert
     if (mappedRows.length > 0) {
-      const supabase = getSupabaseClient();
+      const supabase = await getSupabaseClient();
+      const targetTable = isCampaign ? 'campaign_daily_metrics' : 'daily_funnel_reports';
+      const conflictKeys = isCampaign ? 'metric_date,campaign_name' : 'report_date';
+      
       const { error: upsertError } = await supabase
-        .from('daily_funnel_reports')
-        .upsert(mappedRows, { onConflict: 'report_date' });
+        .from(targetTable)
+        .upsert(mappedRows, { onConflict: conflictKeys });
 
       if (upsertError) {
         console.error('Database sync error:', upsertError);
@@ -215,7 +267,8 @@ export async function POST(request: NextRequest) {
       skipped: skippedRows,
       totalCount: rawRows.length,
       importedCount: mappedRows.length,
-      sheetUsed: sheetName
+      sheetUsed: targetSheetName,
+      type: isCampaign ? 'campaign' : 'leads'
     });
 
   } catch (err: any) {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Calendar, Plus, Edit2, Trash2, Save, X, Loader2, AlertCircle, CheckCircle, RefreshCw, UploadCloud, FileSpreadsheet, Check, Download, AlertTriangle } from 'lucide-react';
+import { LogOut, Calendar, Plus, Edit2, Trash2, Save, X, Loader2, AlertCircle, CheckCircle, RefreshCw, UploadCloud, FileSpreadsheet, Check, AlertTriangle, Shield, Award } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import * as XLSX from 'xlsx';
@@ -23,21 +23,51 @@ interface ReportRow {
   total_cataract_surgeries: number;
   cataract_surgery_from_meta: number;
   cataract_surgery_from_other: number;
+  patient_visits: number;
+  testing_completed: number;
+  conversions_total: number;
+  retention_repeat_visits: number;
+  retention_referrals: number;
+  retention_reviews: number;
   created_at?: string;
   updated_at?: string;
+}
+
+interface CampaignRow {
+  id: string;
+  metric_date: string;
+  campaign_name: string;
+  platform: string;
+  reach: number;
+  impressions: number;
+  video_views: number;
+  link_clicks: number;
+  whatsapp_clicks: number;
+  call_clicks: number;
+  created_at?: string;
 }
 
 export default function AdminPortal() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [reports, setReports] = useState<ReportRow[]>([]);
+  // Top Section Selector: 'funnel' | 'campaign'
+  const [adminSection, setAdminSection] = useState<'funnel' | 'campaign'>('funnel');
+  const [activeTab, setActiveTab] = useState<'manual' | 'import'>('manual');
+
+  // Loading & Alerts
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Form states for new entry
+  // Historical Records States
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+
+  // ==========================================
+  // FORM STATES: Daily Funnel Report Entry
+  // ==========================================
   const [reportDate, setReportDate] = useState('');
   const [totalAppointments, setTotalAppointments] = useState(0);
   const [cancelled, setCancelled] = useState(0);
@@ -52,222 +82,40 @@ export default function AdminPortal() {
   const [totalCataractSurgeries, setTotalCataractSurgeries] = useState(0);
   const [cataractSurgeryFromMeta, setCataractSurgeryFromMeta] = useState(0);
   const [cataractSurgeryFromOther, setCataractSurgeryFromOther] = useState(0);
+  // New Operations stages
+  const [patientVisits, setPatientVisits] = useState(0);
+  const [testingCompleted, setTestingCompleted] = useState(0);
+  const [conversionsTotal, setConversionsTotal] = useState(0);
+  const [retentionRepeatVisits, setRetentionRepeatVisits] = useState(0);
+  const [retentionReferrals, setRetentionReferrals] = useState(0);
+  const [retentionReviews, setRetentionReviews] = useState(0);
 
-  // Edit states
+  // ==========================================
+  // FORM STATES: Campaign Daily Metrics Entry
+  // ==========================================
+  const [metricDate, setMetricDate] = useState('');
+  const [campaignName, setCampaignName] = useState('');
+  const [platform, setPlatform] = useState('Facebook');
+  const [reach, setReach] = useState(0);
+  const [impressions, setImpressions] = useState(0);
+  const [videoViews, setVideoViews] = useState(0);
+  const [linkClicks, setLinkClicks] = useState(0);
+  const [whatsappClicks, setWhatsappClicks] = useState(0);
+  const [callClicks, setCallClicks] = useState(0);
+
+  // Editing States
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<ReportRow>>({});
+  const [editForm, setEditForm] = useState<any>({});
 
-  // Active Tab state
-  const [activeTab, setActiveTab] = useState<'manual' | 'import'>('manual');
-
-  // Import states
+  // Import / Upload States
   const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6gLXPb580tYi9rlQpKXJGa83MuDhTgMzxhS0ZQeSqCtTV1ipdrPqvwwJq-WcQ7IsVnC5RvcQcw2GA/pub?output=xlsx');
   const [importLoading, setImportLoading] = useState(false);
   const [parsedData, setParsedData] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processRawRows = (rawRows: any[]) => {
-    const mappedRows: any[] = [];
-    const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[\s_-]+/g, ' ');
-    const headerMapping: { [key: string]: string } = {
-      'leads date': 'report_date',
-      'date': 'report_date',
-      'total appointments': 'total_appointments',
-      'cancelled': 'cancelled',
-      'no show': 'no_show',
-      'completed': 'completed',
-      'total received calls': 'total_received_calls',
-      'meta call to action': 'meta_call_to_action',
-      'reception tracking meta': 'reception_tracking_meta',
-      'missed meta leads': 'missed_meta_leads',
-      'appointments received from meta': 'appointments_from_meta',
-      'no appointments from meta': 'no_appointments_from_meta',
-      'total cataract surgeries': 'total_cataract_surgeries',
-      'total cataract surgery from meta': 'cataract_surgery_from_meta',
-      'cataract surgery from other': 'cataract_surgery_from_other'
-    };
-
-    const parseDateValue = (val: any): string | null => {
-      if (val === undefined || val === null || val === '') return null;
-      if (typeof val === 'number') {
-        const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-        if (!isNaN(date.getTime())) {
-          return date.toISOString().split('T')[0];
-        }
-      }
-      const str = String(val).trim();
-      const parsed = Date.parse(str);
-      if (!isNaN(parsed)) {
-        const d = new Date(parsed);
-        return d.toISOString().split('T')[0];
-      }
-      const parts = str.split(/[-/.]/);
-      if (parts.length === 3) {
-        let day = parseInt(parts[0], 10);
-        let month = parseInt(parts[1], 10);
-        let year = parseInt(parts[2], 10);
-        if (year < 100) year += 2000;
-        if (day <= 31 && month <= 12 && year > 1900) {
-          const d = new Date(Date.UTC(year, month - 1, day));
-          if (!isNaN(d.getTime())) {
-            return d.toISOString().split('T')[0];
-          }
-        }
-        if (day <= 12 && month <= 31 && year > 1900) {
-          const d = new Date(Date.UTC(year, day - 1, month));
-          if (!isNaN(d.getTime())) {
-            return d.toISOString().split('T')[0];
-          }
-        }
-      }
-      return null;
-    };
-
-    for (const row of rawRows) {
-      const mappedRow: any = {};
-      let hasData = false;
-
-      for (const [key, value] of Object.entries(row)) {
-        const normalizedKey = normalizeHeader(key);
-        const dbColumn = headerMapping[normalizedKey];
-        if (dbColumn) {
-          if (dbColumn === 'report_date') {
-            const parsedDate = parseDateValue(value);
-            if (parsedDate) {
-              mappedRow[dbColumn] = parsedDate;
-              hasData = true;
-            }
-          } else {
-            const numVal = value !== null && value !== '' ? Number(value) : 0;
-            mappedRow[dbColumn] = isNaN(numVal) ? 0 : numVal;
-            hasData = true;
-          }
-        }
-      }
-
-      if (mappedRow.report_date) {
-        for (const col of Object.values(headerMapping)) {
-          if (col !== 'report_date' && mappedRow[col] === undefined) {
-            mappedRow[col] = 0;
-          }
-        }
-        mappedRows.push(mappedRow);
-      }
-    }
-    return mappedRows;
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setError(null);
-    setSuccess(null);
-    setImportLoading(true);
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const bstr = evt.target?.result;
-        const workbook = XLSX.read(bstr, { type: 'binary', raw: true });
-        const sheetName = workbook.SheetNames[0];
-        const sheet = workbook.Sheets[sheetName];
-        const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
-
-        if (rawRows.length === 0) {
-          throw new Error('The spreadsheet is empty.');
-        }
-
-        const mapped = processRawRows(rawRows);
-        if (mapped.length === 0) {
-          throw new Error('No valid records found. Ensure the "Leads Date" column is populated and matches valid date formats.');
-        }
-
-        setParsedData(mapped);
-        setSuccess(`Successfully parsed ${mapped.length} records from file. Please preview and click "Confirm Import" below.`);
-      } catch (err: any) {
-        console.error('Error parsing file:', err);
-        setError(err?.message || 'Failed to parse the file. Please ensure it is a valid Excel or CSV file.');
-      } finally {
-        setImportLoading(false);
-      }
-    };
-    reader.onerror = () => {
-      setError('File reading error.');
-      setImportLoading(false);
-    };
-    reader.readAsBinaryString(file);
-  };
-
-  const handleGoogleSync = async () => {
-    if (!sheetUrl) {
-      setError('Please provide a Google Sheets URL.');
-      return;
-    }
-
-    setError(null);
-    setSuccess(null);
-    setImportLoading(true);
-    setParsedData([]);
-
-    try {
-      const response = await fetch('/api/import-sheet', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: sheetUrl }),
-      });
-
-      const resData = await response.json();
-      if (!response.ok) {
-        throw new Error(resData.error || 'Failed to sync Google Sheet.');
-      }
-
-      if (resData.data && resData.data.length > 0) {
-        setSuccess(`Successfully synced and updated ${resData.importedCount} records from Google Sheets.`);
-        fetchReports();
-      } else {
-        throw new Error('No valid records found in the Google Sheet.');
-      }
-    } catch (err: any) {
-      console.error('Google Sheet sync error:', err);
-      setError(err?.message || 'Failed to sync from Google Sheet. Ensure the link is shared properly.');
-    } finally {
-      setImportLoading(false);
-    }
-  };
-
-  const handleConfirmImport = async () => {
-    if (parsedData.length === 0) return;
-
-    setError(null);
-    setSuccess(null);
-    setActionLoading(true);
-
-    try {
-      const { error: upsertError } = await supabase
-        .from('daily_funnel_reports')
-        .upsert(parsedData, { onConflict: 'report_date' });
-
-      if (upsertError) throw upsertError;
-
-      setSuccess(`Successfully imported/updated ${parsedData.length} funnel report records.`);
-      setParsedData([]);
-      fetchReports();
-    } catch (err: any) {
-      console.error('Database import error:', err);
-      setError(err?.message || 'Failed to import records to the database.');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  // ==========================================
+  // DATA FETCHING & SYNC ACTIONS
+  // ==========================================
   const fetchReports = async () => {
     try {
       setLoading(true);
@@ -286,13 +134,44 @@ export default function AdminPortal() {
     }
   };
 
+  const fetchCampaigns = async () => {
+    try {
+      setLoading(true);
+      const { data, error: fetchError } = await supabase
+        .from('campaign_daily_metrics')
+        .select('*')
+        .order('metric_date', { ascending: false })
+        .order('campaign_name', { ascending: true });
+
+      if (fetchError) throw fetchError;
+      setCampaigns(data || []);
+    } catch (err: any) {
+      console.error('Error fetching campaigns:', err);
+      setError(err?.message || 'Failed to load campaign metrics.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (adminSection === 'funnel') {
+      fetchReports();
+    } else {
+      fetchCampaigns();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminSection]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/login');
     router.refresh();
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  // ==========================================
+  // MANUAL ENTRY: SAVE & SUBMIT
+  // ==========================================
+  const handleCreateReport = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSuccess(null);
@@ -305,7 +184,7 @@ export default function AdminPortal() {
     }
 
     try {
-      const { data, error: insertError } = await supabase
+      const { error: insertError } = await supabase
         .from('daily_funnel_reports')
         .insert([{
           report_date: reportDate,
@@ -321,15 +200,20 @@ export default function AdminPortal() {
           no_appointments_from_meta: Number(noAppointmentsFromMeta),
           total_cataract_surgeries: Number(totalCataractSurgeries),
           cataract_surgery_from_meta: Number(cataractSurgeryFromMeta),
-          cataract_surgery_from_other: Number(cataractSurgeryFromOther)
-        }])
-        .select();
+          cataract_surgery_from_other: Number(cataractSurgeryFromOther),
+          patient_visits: Number(patientVisits),
+          testing_completed: Number(testingCompleted),
+          conversions_total: Number(conversionsTotal),
+          retention_repeat_visits: Number(retentionRepeatVisits),
+          retention_referrals: Number(retentionReferrals),
+          retention_reviews: Number(retentionReviews)
+        }]);
 
       if (insertError) throw insertError;
 
       setSuccess(`Report for ${formatDateString(reportDate)} successfully created.`);
       
-      // Reset form fields
+      // Reset
       setReportDate('');
       setTotalAppointments(0);
       setCancelled(0);
@@ -344,8 +228,13 @@ export default function AdminPortal() {
       setTotalCataractSurgeries(0);
       setCataractSurgeryFromMeta(0);
       setCataractSurgeryFromOther(0);
+      setPatientVisits(0);
+      setTestingCompleted(0);
+      setConversionsTotal(0);
+      setRetentionRepeatVisits(0);
+      setRetentionReferrals(0);
+      setRetentionReviews(0);
 
-      // Refresh list
       fetchReports();
     } catch (err: any) {
       console.error('Error inserting report:', err);
@@ -355,7 +244,60 @@ export default function AdminPortal() {
     }
   };
 
-  const handleStartEdit = (row: ReportRow) => {
+  const handleCreateCampaign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setActionLoading(true);
+
+    if (!metricDate || !campaignName.trim()) {
+      setError('Please provide a valid date and campaign name.');
+      setActionLoading(false);
+      return;
+    }
+
+    try {
+      const { error: insertError } = await supabase
+        .from('campaign_daily_metrics')
+        .insert([{
+          metric_date: metricDate,
+          campaign_name: campaignName.trim(),
+          platform: platform,
+          reach: Number(reach),
+          impressions: Number(impressions),
+          video_views: Number(videoViews),
+          link_clicks: Number(linkClicks),
+          whatsapp_clicks: Number(whatsappClicks),
+          call_clicks: Number(callClicks)
+        }]);
+
+      if (insertError) throw insertError;
+
+      setSuccess(`Campaign metric row for ${campaignName} on ${formatDateString(metricDate)} successfully created.`);
+      
+      // Reset
+      setMetricDate('');
+      setCampaignName('');
+      setReach(0);
+      setImpressions(0);
+      setVideoViews(0);
+      setLinkClicks(0);
+      setWhatsappClicks(0);
+      setCallClicks(0);
+
+      fetchCampaigns();
+    } catch (err: any) {
+      console.error('Error inserting campaign metric:', err);
+      setError(err?.message || 'Failed to insert campaign metric. Check unique constraints.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ==========================================
+  // EDIT & DELETE ACTIONS
+  // ==========================================
+  const handleStartEdit = (row: any) => {
     setEditingId(row.id);
     setEditForm({ ...row });
   };
@@ -371,7 +313,8 @@ export default function AdminPortal() {
     setActionLoading(true);
 
     try {
-      const updateData = {
+      const table = adminSection === 'funnel' ? 'daily_funnel_reports' : 'campaign_daily_metrics';
+      const payload = adminSection === 'funnel' ? {
         total_appointments: Number(editForm.total_appointments),
         cancelled: Number(editForm.cancelled),
         no_show: Number(editForm.no_show),
@@ -385,30 +328,45 @@ export default function AdminPortal() {
         total_cataract_surgeries: Number(editForm.total_cataract_surgeries),
         cataract_surgery_from_meta: Number(editForm.cataract_surgery_from_meta),
         cataract_surgery_from_other: Number(editForm.cataract_surgery_from_other),
+        patient_visits: Number(editForm.patient_visits),
+        testing_completed: Number(editForm.testing_completed),
+        conversions_total: Number(editForm.conversions_total),
+        retention_repeat_visits: Number(editForm.retention_repeat_visits),
+        retention_referrals: Number(editForm.retention_referrals),
+        retention_reviews: Number(editForm.retention_reviews),
         updated_at: new Date().toISOString()
+      } : {
+        campaign_name: String(editForm.campaign_name).trim(),
+        platform: String(editForm.platform),
+        reach: Number(editForm.reach),
+        impressions: Number(editForm.impressions),
+        video_views: Number(editForm.video_views),
+        link_clicks: Number(editForm.link_clicks),
+        whatsapp_clicks: Number(editForm.whatsapp_clicks),
+        call_clicks: Number(editForm.call_clicks)
       };
 
       const { error: updateError } = await supabase
-        .from('daily_funnel_reports')
-        .update(updateData)
+        .from(table)
+        .update(payload)
         .eq('id', id);
 
       if (updateError) throw updateError;
 
-      setSuccess(`Report details successfully updated.`);
+      setSuccess(`Details successfully updated.`);
       setEditingId(null);
       setEditForm({});
-      fetchReports();
+      if (adminSection === 'funnel') fetchReports(); else fetchCampaigns();
     } catch (err: any) {
-      console.error('Error updating report:', err);
-      setError(err?.message || 'Failed to update report.');
+      console.error('Error updating:', err);
+      setError(err?.message || 'Failed to update record.');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleDelete = async (id: string, date: string) => {
-    if (!confirm(`Are you sure you want to permanently delete the report for ${formatDateString(date)}?`)) {
+  const handleDelete = async (id: string, date: string, label: string) => {
+    if (!confirm(`Are you sure you want to permanently delete the entry for ${label} on ${formatDateString(date)}?`)) {
       return;
     }
 
@@ -417,18 +375,261 @@ export default function AdminPortal() {
     setActionLoading(true);
 
     try {
+      const table = adminSection === 'funnel' ? 'daily_funnel_reports' : 'campaign_daily_metrics';
       const { error: deleteError } = await supabase
-        .from('daily_funnel_reports')
+        .from(table)
         .delete()
         .eq('id', id);
 
       if (deleteError) throw deleteError;
 
-      setSuccess(`Report for ${formatDateString(date)} successfully deleted.`);
-      fetchReports();
+      setSuccess(`Entry successfully deleted.`);
+      if (adminSection === 'funnel') fetchReports(); else fetchCampaigns();
     } catch (err: any) {
-      console.error('Error deleting report:', err);
-      setError(err?.message || 'Failed to delete report.');
+      console.error('Error deleting record:', err);
+      setError(err?.message || 'Failed to delete record.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ==========================================
+  // SHEET IMPORT FLOW
+  // ==========================================
+  const handleGoogleSync = async () => {
+    if (!sheetUrl) {
+      setError('Please provide a Google Sheets URL.');
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setImportLoading(true);
+    setParsedData([]);
+
+    try {
+      const response = await fetch('/api/import-sheet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: sheetUrl, type: adminSection }),
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || 'Failed to sync Google Sheet.');
+      }
+
+      if (resData.data && resData.data.length > 0) {
+        setSuccess(`Successfully synced and updated ${resData.importedCount} records into table: "${resData.type === 'campaign' ? 'campaign_daily_metrics' : 'daily_funnel_reports'}".`);
+        if (adminSection === 'funnel') fetchReports(); else fetchCampaigns();
+      } else {
+        throw new Error('No valid records found in the Google Sheet tab.');
+      }
+    } catch (err: any) {
+      console.error('Google Sheet sync error:', err);
+      setError(err?.message || 'Failed to sync from Google Sheet. Ensure the link is shared properly.');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Client-side Excel File Upload processing
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+    setSuccess(null);
+    setImportLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const workbook = XLSX.read(bstr, { type: 'binary', raw: true });
+        
+        // Auto select tab
+        const isCampaign = adminSection === 'campaign';
+        const targetSheetName = isCampaign
+          ? (workbook.SheetNames.find(name => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')) || workbook.SheetNames[0])
+          : (workbook.SheetNames.find(name => name.trim().toLowerCase() === 'leads') || workbook.SheetNames[0]);
+
+        const sheet = workbook.Sheets[targetSheetName];
+        const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
+
+        if (rawRows.length === 0) {
+          throw new Error('The spreadsheet sheet appears to be empty.');
+        }
+
+        const mapped = processRawRows(rawRows);
+        if (mapped.length === 0) {
+          throw new Error('No valid records found. Ensure headers match expected column mapping.');
+        }
+
+        setParsedData(mapped);
+        setSuccess(`Successfully parsed ${mapped.length} records from file. Please preview and click "Confirm Import" below.`);
+      } catch (err: any) {
+        console.error('Error parsing file:', err);
+        setError(err?.message || 'Failed to parse the file. Please ensure headers are formatted correctly.');
+      } finally {
+        setImportLoading(false);
+      }
+    };
+    reader.onerror = () => {
+      setError('File reading error.');
+      setImportLoading(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const processRawRows = (rawRows: any[]) => {
+    const isCampaign = adminSection === 'campaign';
+    const currentMapping: any = isCampaign
+      ? {
+          'date': 'metric_date',
+          'metric date': 'metric_date',
+          'leads date': 'metric_date',
+          'campain name': 'campaign_name',
+          'campaign name': 'campaign_name',
+          'platform': 'platform',
+          'reach': 'reach',
+          'impressions': 'impressions',
+          'video views': 'video_views',
+          'link clicks': 'link_clicks',
+          'whatsapp clicks': 'whatsapp_clicks',
+          'call clicks': 'call_clicks'
+        }
+      : {
+          'leads date': 'report_date',
+          'date': 'report_date',
+          'total appointments': 'total_appointments',
+          'cancelled': 'cancelled',
+          'no show': 'no_show',
+          'completed': 'completed',
+          'total received calls': 'total_received_calls',
+          'meta call to action': 'meta_call_to_action',
+          'reception tracking meta': 'reception_tracking_meta',
+          'missed meta leads': 'missed_meta_leads',
+          'appointments received from meta': 'appointments_from_meta',
+          'no appointments from meta': 'no_appointments_from_meta',
+          'total cataract surgeries': 'total_cataract_surgeries',
+          'total cataract surgery from meta': 'cataract_surgery_from_meta',
+          'cataract surgery from other': 'cataract_surgery_from_other',
+          'patient visits': 'patient_visits',
+          'visits': 'patient_visits',
+          'testing completed': 'testing_completed',
+          'testing': 'testing_completed',
+          'conversions total': 'conversions_total',
+          'conversions': 'conversions_total',
+          'retention repeat visits': 'retention_repeat_visits',
+          'repeat visits': 'retention_repeat_visits',
+          'retention referrals': 'retention_referrals',
+          'referrals': 'retention_referrals',
+          'retention reviews': 'retention_reviews',
+          'reviews': 'retention_reviews'
+        };
+
+    const dateField = isCampaign ? 'metric_date' : 'report_date';
+    const mappedRows: any[] = [];
+    const normalizeHeader = (h: string) => h.toLowerCase().trim().replace(/[\s_-]+/g, ' ');
+
+    const parseDateValue = (val: any): string | null => {
+      if (val === undefined || val === null || val === '') return null;
+      if (typeof val === 'number') {
+        const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+        if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+      }
+      const str = String(val).trim();
+      const parsed = Date.parse(str);
+      if (!isNaN(parsed)) {
+        const d = new Date(parsed);
+        return d.toISOString().split('T')[0];
+      }
+      const parts = str.split(/[-/.]/);
+      if (parts.length === 3) {
+        let day = parseInt(parts[0], 10);
+        let month = parseInt(parts[1], 10);
+        let year = parseInt(parts[2], 10);
+        if (year < 100) year += 2000;
+        if (day <= 31 && month <= 12 && year > 1900) {
+          const d = new Date(Date.UTC(year, month - 1, day));
+          if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+        }
+        if (day <= 12 && month <= 31 && year > 1900) {
+          const d = new Date(Date.UTC(year, day - 1, month));
+          if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+        }
+      }
+      return null;
+    };
+
+    for (const row of rawRows) {
+      const mappedRow: any = {};
+      let hasData = false;
+
+      for (const [key, value] of Object.entries(row)) {
+        const normalizedKey = normalizeHeader(key);
+        const dbColumn = currentMapping[normalizedKey];
+        if (dbColumn) {
+          if (dbColumn === dateField) {
+            const parsedDate = parseDateValue(value);
+            if (parsedDate) {
+              mappedRow[dbColumn] = parsedDate;
+              hasData = true;
+            }
+          } else if (dbColumn === 'campaign_name' || dbColumn === 'platform') {
+            mappedRow[dbColumn] = value !== null ? String(value).trim() : '';
+            hasData = true;
+          } else {
+            const numVal = value !== null && value !== '' ? Number(value) : 0;
+            mappedRow[dbColumn] = isNaN(numVal) ? 0 : numVal;
+            hasData = true;
+          }
+        }
+      }
+
+      if (mappedRow[dateField]) {
+        if (isCampaign && !mappedRow.campaign_name) {
+          // Skip missing campaign name row
+        } else {
+          for (const col of Object.values(currentMapping) as string[]) {
+            if (col !== dateField && col !== 'campaign_name' && col !== 'platform' && mappedRow[col] === undefined) {
+              mappedRow[col] = 0;
+            }
+          }
+          mappedRows.push(mappedRow);
+        }
+      }
+    }
+    return mappedRows;
+  };
+
+  const handleConfirmImport = async () => {
+    if (parsedData.length === 0) return;
+
+    setError(null);
+    setSuccess(null);
+    setActionLoading(true);
+
+    try {
+      const isCampaign = adminSection === 'campaign';
+      const targetTable = isCampaign ? 'campaign_daily_metrics' : 'daily_funnel_reports';
+      const conflictKeys = isCampaign ? 'metric_date,campaign_name' : 'report_date';
+
+      const { error: upsertError } = await supabase
+        .from(targetTable)
+        .upsert(parsedData, { onConflict: conflictKeys });
+
+      if (upsertError) throw upsertError;
+
+      setSuccess(`Successfully imported/updated ${parsedData.length} records.`);
+      setParsedData([]);
+      if (adminSection === 'funnel') fetchReports(); else fetchCampaigns();
+    } catch (err: any) {
+      console.error('Database import error:', err);
+      setError(err?.message || 'Failed to import records to the database.');
     } finally {
       setActionLoading(false);
     }
@@ -468,6 +669,30 @@ export default function AdminPortal() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 mt-8 space-y-8">
+        {/* Section Selector Pills */}
+        <div className="flex gap-4 p-1.5 bg-slate-100 border border-brand-border rounded-lg max-w-md">
+          <button
+            onClick={() => { setAdminSection('funnel'); setParsedData([]); setError(null); setSuccess(null); }}
+            className={`flex-1 py-2 px-4 text-center rounded-md text-sm font-bold transition-all ${
+              adminSection === 'funnel'
+                ? 'bg-white text-brand-teal shadow-xs'
+                : 'text-slate-500 hover:text-brand-navy'
+            }`}
+          >
+            Daily Funnel Reports
+          </button>
+          <button
+            onClick={() => { setAdminSection('campaign'); setParsedData([]); setError(null); setSuccess(null); }}
+            className={`flex-1 py-2 px-4 text-center rounded-md text-sm font-bold transition-all ${
+              adminSection === 'campaign'
+                ? 'bg-white text-brand-teal shadow-xs'
+                : 'text-slate-500 hover:text-brand-navy'
+            }`}
+          >
+            Campaign Metrics
+          </button>
+        </div>
+
         {/* Alerts */}
         {error && (
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2.5 text-xs text-brand-red font-semibold">
@@ -512,193 +737,405 @@ export default function AdminPortal() {
 
           {activeTab === 'manual' ? (
             <div>
-              <div className="flex items-center gap-2 border-b border-brand-border pb-3 mb-6">
-                <Plus className="w-5 h-5 text-brand-teal" />
-                <h2 className="text-md font-bold text-brand-navy">Add Daily Funnel Report</h2>
-              </div>
-
-              <form onSubmit={handleCreate} className="space-y-6">
-                {/* Group 1: General */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                      Report Date
-                    </label>
-                    <input
-                      type="date"
-                      required
-                      value={reportDate}
-                      onChange={(e) => setReportDate(e.target.value)}
-                      className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg focus:ring-1 focus:ring-brand-teal focus:border-brand-teal font-medium"
-                    />
+              {adminSection === 'funnel' ? (
+                <div>
+                  <div className="flex items-center gap-2 border-b border-brand-border pb-3 mb-6">
+                    <Plus className="w-5 h-5 text-brand-teal" />
+                    <h2 className="text-md font-bold text-brand-navy">Add Daily Funnel Report</h2>
                   </div>
-                </div>
 
-                <div className="border-t border-brand-border pt-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Meta Campaigns & Reception Logs</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Meta Clicks (CTA)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={metaCallToAction}
-                        onChange={(e) => setMetaCallToAction(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+                  <form onSubmit={handleCreateReport} className="space-y-6">
+                    {/* General */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Report Date
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={reportDate}
+                          onChange={(e) => setReportDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg focus:ring-1 focus:ring-brand-teal focus:border-brand-teal font-medium"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Reception Tracked</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={receptionTrackingMeta}
-                        onChange={(e) => setReceptionTrackingMeta(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Meta Campaigns & Reception Logs</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Meta Clicks (CTA)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={metaCallToAction}
+                            onChange={(e) => setMetaCallToAction(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Reception Tracked</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={receptionTrackingMeta}
+                            onChange={(e) => setReceptionTrackingMeta(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Missed Leads</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={missedMetaLeads}
+                            onChange={(e) => setMissedMetaLeads(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Total Received Calls (All)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={totalReceivedCalls}
+                            onChange={(e) => setTotalReceivedCalls(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Missed Leads</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={missedMetaLeads}
-                        onChange={(e) => setMissedMetaLeads(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Meta Appointments Details</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Appointments from Meta</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={appointmentsFromMeta}
+                            onChange={(e) => setAppointmentsFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">No Appointments from Meta</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={noAppointmentsFromMeta}
+                            onChange={(e) => setNoAppointmentsFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Total Received Calls (All)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={totalReceivedCalls}
-                        onChange={(e) => setTotalReceivedCalls(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">General Appointments (All Sources)</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Total Appointments</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={totalAppointments}
+                            onChange={(e) => setTotalAppointments(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Completed</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={completed}
+                            onChange={(e) => setCompleted(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Cancelled</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={cancelled}
+                            onChange={(e) => setCancelled(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">No Show</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={noShow}
+                            onChange={(e) => setNoShow(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Operations — Visit & Conversion Tracking</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Patient Visits</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={patientVisits}
+                            onChange={(e) => setPatientVisits(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Testing Completed</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={testingCompleted}
+                            onChange={(e) => setTestingCompleted(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Conversions (Total)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={conversionsTotal}
+                            onChange={(e) => setConversionsTotal(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Operations — Patient Retention</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Repeat Visits</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={retentionRepeatVisits}
+                            onChange={(e) => setRetentionRepeatVisits(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Referrals</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={retentionReferrals}
+                            onChange={(e) => setRetentionReferrals(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Reviews Left</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={retentionReviews}
+                            onChange={(e) => setRetentionReviews(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Cataract Surgeries</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Total Cataract Surgeries</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={totalCataractSurgeries}
+                            onChange={(e) => setTotalCataractSurgeries(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Surgery from Meta</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={cataractSurgeryFromMeta}
+                            onChange={(e) => setCataractSurgeryFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Surgery from Other</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={cataractSurgeryFromOther}
+                            onChange={(e) => setCataractSurgeryFromOther(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 border-t border-brand-border flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={actionLoading}
+                        className="bg-brand-teal text-white hover:bg-opacity-90 px-6 py-2.5 rounded-brand font-semibold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        Save Daily Entry
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex items-center gap-2 border-b border-brand-border pb-3 mb-6">
+                    <Plus className="w-5 h-5 text-brand-teal" />
+                    <h2 className="text-md font-bold text-brand-navy">Add Campaign Metrics Daily Entry</h2>
                   </div>
-                </div>
 
-                <div className="border-t border-brand-border pt-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Meta Appointments Details</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Appointments from Meta</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={appointmentsFromMeta}
-                        onChange={(e) => setAppointmentsFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+                  <form onSubmit={handleCreateCampaign} className="space-y-6">
+                    {/* General */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Date
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={metricDate}
+                          onChange={(e) => setMetricDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg focus:ring-1 focus:ring-brand-teal focus:border-brand-teal font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Campaign Name
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Cataract Meta Campaign June"
+                          value={campaignName}
+                          onChange={(e) => setCampaignName(e.target.value)}
+                          className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg focus:ring-1 focus:ring-brand-teal focus:border-brand-teal font-medium"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                          Platform
+                        </label>
+                        <select
+                          value={platform}
+                          onChange={(e) => setPlatform(e.target.value)}
+                          className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg focus:ring-1 focus:ring-brand-teal focus:border-brand-teal font-medium"
+                        >
+                          <option value="Facebook">Facebook</option>
+                          <option value="Instagram">Instagram</option>
+                          <option value="Meta Ads">Meta Ads (Combined)</option>
+                          <option value="Google Ads">Google Ads</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">No Appointments from Meta</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={noAppointmentsFromMeta}
-                        onChange={(e) => setNoAppointmentsFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                <div className="border-t border-brand-border pt-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">General Appointments (All Sources)</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Total Appointments</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={totalAppointments}
-                        onChange={(e) => setTotalAppointments(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Marketing Metrics</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Reach</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={reach}
+                            onChange={(e) => setReach(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Impressions</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={impressions}
+                            onChange={(e) => setImpressions(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Video Views</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={videoViews}
+                            onChange={(e) => setVideoViews(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Completed</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={completed}
-                        onChange={(e) => setCompleted(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Cancelled</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cancelled}
-                        onChange={(e) => setCancelled(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">No Show</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={noShow}
-                        onChange={(e) => setNoShow(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                <div className="border-t border-brand-border pt-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Cataract Surgeries</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Total Cataract Surgeries</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={totalCataractSurgeries}
-                        onChange={(e) => setTotalCataractSurgeries(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
+                    <div className="border-t border-brand-border pt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Interest & Click Logs</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Link Clicks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={linkClicks}
+                            onChange={(e) => setLinkClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">WhatsApp Clicks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={whatsappClicks}
+                            onChange={(e) => setWhatsappClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-600 mb-1">Call Clicks</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={callClicks}
+                            onChange={(e) => setCallClicks(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Surgery from Meta</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cataractSurgeryFromMeta}
-                        onChange={(e) => setCataractSurgeryFromMeta(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-600 mb-1">Surgery from Other</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={cataractSurgeryFromOther}
-                        onChange={(e) => setCataractSurgeryFromOther(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-full px-3 py-2 border border-brand-border rounded-lg text-sm bg-brand-bg font-mono"
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                <div className="pt-4 border-t border-brand-border flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={actionLoading}
-                    className="bg-brand-teal text-white hover:bg-opacity-90 px-6 py-2.5 rounded-brand font-semibold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    Save Daily Entry
-                  </button>
+                    <div className="pt-4 border-t border-brand-border flex justify-end">
+                      <button
+                        type="submit"
+                        disabled={actionLoading}
+                        className="bg-brand-teal text-white hover:bg-opacity-90 px-6 py-2.5 rounded-brand font-semibold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                        Save Campaign Entry
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </form>
+              )}
             </div>
           ) : (
             <div className="space-y-6">
@@ -706,12 +1143,12 @@ export default function AdminPortal() {
                 <div className="flex items-start gap-3">
                   <AlertTriangle className="w-5 h-5 text-brand-teal flex-shrink-0 mt-0.5" />
                   <div className="space-y-1.5 text-xs text-slate-600">
-                    <h4 className="font-bold text-brand-navy">Google Sheet Sharing Requirements</h4>
+                    <h4 className="font-bold text-brand-navy">Spreadsheet Mapping Info ({adminSection === 'campaign' ? 'Campaign Metrics' : 'Daily Leads Funnel'})</h4>
                     <p>
-                      For direct sync to succeed, the Google Sheet must be shared so that <strong>&quot;Anyone with the link can view&quot;</strong>.
+                      Make sure your sheet is set to <strong>&quot;Anyone with the link can view&quot;</strong> before hitting sync.
                     </p>
                     <p>
-                      Alternatively, click <strong>File &gt; Share &gt; Publish to web</strong> in Google Sheets, or download the sheet as an Excel/CSV file and drop it in the uploader below.
+                      The spreadsheet tab name must be <strong>&quot;{adminSection === 'campaign' ? 'Campain Metrics Daily' : 'Leads'}&quot;</strong>.
                     </p>
                   </div>
                 </div>
@@ -787,28 +1224,54 @@ export default function AdminPortal() {
                   <div className="border border-brand-border rounded-lg overflow-hidden max-h-60 overflow-y-auto">
                     <table className="min-w-full divide-y divide-brand-border text-[11px] text-left text-slate-600">
                       <thead className="bg-slate-50 text-slate-500 font-bold uppercase">
-                        <tr>
-                          <th className="px-3 py-2">Date</th>
-                          <th className="px-3 py-2 text-center">Meta CTA</th>
-                          <th className="px-3 py-2 text-center">Recep. Log</th>
-                          <th className="px-3 py-2 text-center">Missed Leads</th>
-                          <th className="px-3 py-2 text-center">Meta Appts</th>
-                          <th className="px-3 py-2 text-center">Meta Surg.</th>
-                          <th className="px-3 py-2 text-center">Total Appts</th>
-                        </tr>
+                        {adminSection === 'funnel' ? (
+                          <tr>
+                            <th className="px-3 py-2">Date</th>
+                            <th className="px-3 py-2 text-center">Meta CTA</th>
+                            <th className="px-3 py-2 text-center">Recep. Log</th>
+                            <th className="px-3 py-2 text-center">Missed</th>
+                            <th className="px-3 py-2 text-center">Patient Visits</th>
+                            <th className="px-3 py-2 text-center">Conversions</th>
+                            <th className="px-3 py-2 text-center">Total Appts</th>
+                          </tr>
+                        ) : (
+                          <tr>
+                            <th className="px-3 py-2">Date</th>
+                            <th className="px-3 py-2">Campaign</th>
+                            <th className="px-3 py-2 text-center">Reach</th>
+                            <th className="px-3 py-2 text-center">Impr.</th>
+                            <th className="px-3 py-2 text-center">Link Clicks</th>
+                            <th className="px-3 py-2 text-center">WA Clicks</th>
+                            <th className="px-3 py-2 text-center">Calls Clicks</th>
+                          </tr>
+                        )}
                       </thead>
                       <tbody className="divide-y divide-brand-border bg-white font-mono">
-                        {parsedData.slice(0, 10).map((row, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="px-3 py-2 font-bold text-brand-navy">{row.report_date}</td>
-                            <td className="px-3 py-2 text-center">{row.meta_call_to_action}</td>
-                            <td className="px-3 py-2 text-center">{row.reception_tracking_meta}</td>
-                            <td className="px-3 py-2 text-center text-brand-red">{row.missed_meta_leads}</td>
-                            <td className="px-3 py-2 text-center">{row.appointments_from_meta}</td>
-                            <td className="px-3 py-2 text-center text-brand-amber font-bold">{row.cataract_surgery_from_meta}</td>
-                            <td className="px-3 py-2 text-center font-bold">{row.total_appointments}</td>
-                          </tr>
-                        ))}
+                        {adminSection === 'funnel' ? (
+                          parsedData.slice(0, 10).map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 font-bold text-brand-navy">{row.report_date}</td>
+                              <td className="px-3 py-2 text-center">{row.meta_call_to_action}</td>
+                              <td className="px-3 py-2 text-center">{row.reception_tracking_meta}</td>
+                              <td className="px-3 py-2 text-center text-brand-red">{row.missed_meta_leads}</td>
+                              <td className="px-3 py-2 text-center">{row.patient_visits}</td>
+                              <td className="px-3 py-2 text-center text-brand-teal font-bold">{row.conversions_total}</td>
+                              <td className="px-3 py-2 text-center font-bold">{row.total_appointments}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          parsedData.slice(0, 10).map((row, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="px-3 py-2 font-bold text-brand-navy">{row.metric_date}</td>
+                              <td className="px-3 py-2 font-bold text-slate-700">{row.campaign_name} ({row.platform})</td>
+                              <td className="px-3 py-2 text-center">{row.reach}</td>
+                              <td className="px-3 py-2 text-center">{row.impressions}</td>
+                              <td className="px-3 py-2 text-center text-brand-teal">{row.link_clicks}</td>
+                              <td className="px-3 py-2 text-center text-emerald-600">{row.whatsapp_clicks}</td>
+                              <td className="px-3 py-2 text-center">{row.call_clicks}</td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                     {parsedData.length > 10 && (
@@ -823,15 +1286,17 @@ export default function AdminPortal() {
           )}
         </div>
 
-        {/* Existing reports list */}
+        {/* Historical List */}
         <div className="bg-white border border-brand-border rounded-brand p-6 shadow-sm overflow-hidden">
           <div className="flex items-center justify-between border-b border-brand-border pb-3 mb-6">
             <div className="flex items-center gap-2">
               <Calendar className="w-5 h-5 text-brand-teal" />
-              <h2 className="text-md font-bold text-brand-navy">Historical Logs & Entries</h2>
+              <h2 className="text-md font-bold text-brand-navy">
+                {adminSection === 'funnel' ? 'Historical Funnel Reports' : 'Historical Campaign Metrics'}
+              </h2>
             </div>
             <button
-              onClick={fetchReports}
+              onClick={adminSection === 'funnel' ? fetchReports : fetchCampaigns}
               disabled={loading}
               className="text-xs text-slate-500 hover:text-brand-teal flex items-center gap-1.5 font-semibold"
             >
@@ -844,9 +1309,206 @@ export default function AdminPortal() {
               <Loader2 className="w-8 h-8 text-brand-teal animate-spin mx-auto mb-3" />
               Loading records database...
             </div>
-          ) : reports.length === 0 ? (
+          ) : adminSection === 'funnel' ? (
+            reports.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 font-medium border border-dashed border-brand-border rounded-lg">
+                No daily reports recorded yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-brand-border text-xs">
+                  <thead className="bg-brand-bg text-slate-500 font-bold uppercase tracking-wider">
+                    <tr>
+                      <th className="px-3 py-3 text-left">Date</th>
+                      <th className="px-3 py-3 text-center">Meta CTA</th>
+                      <th className="px-3 py-3 text-center">Recep. Log</th>
+                      <th className="px-3 py-3 text-center">Missed Leads</th>
+                      <th className="px-3 py-3 text-center">Meta Appts</th>
+                      <th className="px-3 py-3 text-center">Visits</th>
+                      <th className="px-3 py-3 text-center">Testing</th>
+                      <th className="px-3 py-3 text-center">Conversions</th>
+                      <th className="px-3 py-3 text-center">Retention (Rep/Ref/Rev)</th>
+                      <th className="px-3 py-3 text-center">Meta Surg.</th>
+                      <th className="px-3 py-3 text-center">Total Appts</th>
+                      <th className="px-4 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-brand-border font-medium text-slate-700 bg-white">
+                    {reports.map((row) => {
+                      const isEditing = editingId === row.id;
+                      return (
+                        <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-3 py-4 whitespace-nowrap font-bold text-brand-navy">
+                            {formatDateString(row.report_date)}
+                          </td>
+                          {isEditing ? (
+                            <>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.meta_call_to_action ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, meta_call_to_action: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                />
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.reception_tracking_meta ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, reception_tracking_meta: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono"
+                                />
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.missed_meta_leads ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, missed_meta_leads: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono text-brand-red"
+                                />
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.appointments_from_meta ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, appointments_from_meta: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono"
+                                />
+                              </td>
+                              {/* Visits */}
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.patient_visits ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, patient_visits: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold text-brand-teal"
+                                />
+                              </td>
+                              {/* Testing */}
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.testing_completed ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, testing_completed: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono text-slate-700"
+                                />
+                              </td>
+                              {/* Conversions */}
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.conversions_total ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, conversions_total: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold text-brand-amber"
+                                />
+                              </td>
+                              {/* Retention (Rep/Ref/Rev) */}
+                              <td className="px-1 py-2 text-center font-mono whitespace-nowrap">
+                                <input
+                                  type="number"
+                                  value={editForm.retention_repeat_visits ?? 0}
+                                  placeholder="Rep"
+                                  onChange={(e) => setEditForm({ ...editForm, retention_repeat_visits: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-8 px-1 py-1 border border-brand-border rounded text-center text-[10px]"
+                                />
+                                /
+                                <input
+                                  type="number"
+                                  value={editForm.retention_referrals ?? 0}
+                                  placeholder="Ref"
+                                  onChange={(e) => setEditForm({ ...editForm, retention_referrals: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-8 px-1 py-1 border border-brand-border rounded text-center text-[10px]"
+                                />
+                                /
+                                <input
+                                  type="number"
+                                  value={editForm.retention_reviews ?? 0}
+                                  placeholder="Rev"
+                                  onChange={(e) => setEditForm({ ...editForm, retention_reviews: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-8 px-1 py-1 border border-brand-border rounded text-center text-[10px]"
+                                />
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.cataract_surgery_from_meta ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, cataract_surgery_from_meta: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono"
+                                />
+                              </td>
+                              <td className="px-1 py-2 text-center">
+                                <input
+                                  type="number"
+                                  value={editForm.total_appointments ?? 0}
+                                  onChange={(e) => setEditForm({ ...editForm, total_appointments: Math.max(0, parseInt(e.target.value) || 0) })}
+                                  className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                />
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-3 py-4 text-center font-mono font-bold text-slate-500">{row.meta_call_to_action}</td>
+                              <td className="px-3 py-4 text-center font-mono">{row.reception_tracking_meta}</td>
+                              <td className="px-3 py-4 text-center font-mono text-brand-red">{row.missed_meta_leads}</td>
+                              <td className="px-3 py-4 text-center font-mono">{row.appointments_from_meta}</td>
+                              {/* Visits */}
+                              <td className="px-3 py-4 text-center font-mono font-bold text-brand-teal">{row.patient_visits}</td>
+                              {/* Testing */}
+                              <td className="px-3 py-4 text-center font-mono text-slate-600">{row.testing_completed}</td>
+                              {/* Conversions */}
+                              <td className="px-3 py-4 text-center font-mono font-bold text-brand-amber">{row.conversions_total}</td>
+                              {/* Retention */}
+                              <td className="px-3 py-4 text-center font-mono text-slate-500">
+                                {row.retention_repeat_visits} / {row.retention_referrals} / {row.retention_reviews}
+                              </td>
+                              <td className="px-3 py-4 text-center font-mono text-slate-700 font-bold">{row.cataract_surgery_from_meta}</td>
+                              <td className="px-3 py-4 text-center font-mono font-bold text-brand-navy">{row.total_appointments}</td>
+                            </>
+                          )}
+                          <td className="px-4 py-4 whitespace-nowrap text-right">
+                            {isEditing ? (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleUpdate(row.id)}
+                                  disabled={actionLoading}
+                                  className="p-1.5 text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
+                                >
+                                  <Save className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={handleCancelEdit}
+                                  className="p-1.5 text-slate-500 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleStartEdit(row)}
+                                  className="p-1.5 text-slate-500 hover:text-brand-teal bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(row.id, row.report_date, 'funnel report')}
+                                  className="p-1.5 text-brand-red hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-all"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : campaigns.length === 0 ? (
             <div className="py-12 text-center text-slate-400 font-medium border border-dashed border-brand-border rounded-lg">
-              No historical data logs recorded yet.
+              No campaign metrics recorded yet.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -854,146 +1516,112 @@ export default function AdminPortal() {
                 <thead className="bg-brand-bg text-slate-500 font-bold uppercase tracking-wider">
                   <tr>
                     <th className="px-3 py-3 text-left">Date</th>
-                    <th className="px-3 py-3 text-center">Meta CTA</th>
-                    <th className="px-3 py-3 text-center">Recep. Log</th>
-                    <th className="px-3 py-3 text-center">Missed Leads</th>
-                    <th className="px-3 py-3 text-center">Meta Appts</th>
-                    <th className="px-3 py-3 text-center">Meta Surg.</th>
-                    <th className="px-3 py-3 text-center">Total Appts</th>
-                    <th className="px-3 py-3 text-center">Comp/Canc/NoShow</th>
-                    <th className="px-3 py-3 text-center">Total Surg (Oth)</th>
-                    <th className="px-3 py-3 text-center">Total Calls</th>
+                    <th className="px-3 py-3 text-left">Campaign Name</th>
+                    <th className="px-3 py-3 text-center">Platform</th>
+                    <th className="px-3 py-3 text-center">Reach</th>
+                    <th className="px-3 py-3 text-center">Impressions</th>
+                    <th className="px-3 py-3 text-center">Video Views</th>
+                    <th className="px-3 py-3 text-center">Link Clicks</th>
+                    <th className="px-3 py-3 text-center">WhatsApp Clicks</th>
+                    <th className="px-3 py-3 text-center">Call Clicks</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-brand-border font-medium text-slate-700 bg-white">
-                  {reports.map((row) => {
+                  {campaigns.map((row) => {
                     const isEditing = editingId === row.id;
                     return (
                       <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-3 py-4 whitespace-nowrap font-bold text-brand-navy">
-                          {formatDateString(row.report_date)}
+                          {formatDateString(row.metric_date)}
                         </td>
-
-                        {/* Inline editor conditional inputs */}
                         {isEditing ? (
                           <>
-                            <td className="px-1 py-2 text-center">
+                            <td className="px-1 py-2 text-left">
                               <input
-                                type="number"
-                                value={editForm.meta_call_to_action ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, meta_call_to_action: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                type="text"
+                                value={editForm.campaign_name ?? ''}
+                                onChange={(e) => setEditForm({ ...editForm, campaign_name: e.target.value })}
+                                className="w-full px-2 py-1 border border-brand-border rounded font-bold text-slate-700"
                               />
+                            </td>
+                            <td className="px-1 py-2 text-center">
+                              <select
+                                value={editForm.platform ?? 'Facebook'}
+                                onChange={(e) => setEditForm({ ...editForm, platform: e.target.value })}
+                                className="px-1 py-1 border border-brand-border rounded"
+                              >
+                                <option value="Facebook">Facebook</option>
+                                <option value="Instagram">Instagram</option>
+                                <option value="Meta Ads">Meta Ads</option>
+                                <option value="Google Ads">Google Ads</option>
+                              </select>
                             </td>
                             <td className="px-1 py-2 text-center">
                               <input
                                 type="number"
-                                value={editForm.reception_tracking_meta ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, reception_tracking_meta: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
-                              />
-                            </td>
-                            <td className="px-1 py-2 text-center">
-                              <input
-                                type="number"
-                                value={editForm.missed_meta_leads ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, missed_meta_leads: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
-                              />
-                            </td>
-                            <td className="px-1 py-2 text-center">
-                              <input
-                                type="number"
-                                value={editForm.appointments_from_meta ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, appointments_from_meta: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                value={editForm.reach ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, reach: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-16 px-1 py-1 border border-brand-border rounded text-center font-mono"
                               />
                             </td>
                             <td className="px-1 py-2 text-center">
                               <input
                                 type="number"
-                                value={editForm.cataract_surgery_from_meta ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, cataract_surgery_from_meta: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                value={editForm.impressions ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, impressions: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-16 px-1 py-1 border border-brand-border rounded text-center font-mono"
                               />
                             </td>
                             <td className="px-1 py-2 text-center">
                               <input
                                 type="number"
-                                value={editForm.total_appointments ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, total_appointments: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                value={editForm.video_views ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, video_views: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono"
                               />
-                            </td>
-                            <td className="px-1 py-2 text-center font-mono whitespace-nowrap">
-                              <input
-                                type="number"
-                                value={editForm.completed ?? 0}
-                                placeholder="Comp"
-                                onChange={(e) => setEditForm({ ...editForm, completed: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-10 px-1 py-1 border border-brand-border rounded text-center"
-                              />
-                              /
-                              <input
-                                type="number"
-                                value={editForm.cancelled ?? 0}
-                                placeholder="Canc"
-                                onChange={(e) => setEditForm({ ...editForm, cancelled: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-10 px-1 py-1 border border-brand-border rounded text-center"
-                              />
-                              /
-                              <input
-                                type="number"
-                                value={editForm.no_show ?? 0}
-                                placeholder="NS"
-                                onChange={(e) => setEditForm({ ...editForm, no_show: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-10 px-1 py-1 border border-brand-border rounded text-center"
-                              />
-                            </td>
-                            <td className="px-1 py-2 text-center font-mono whitespace-nowrap">
-                              <input
-                                type="number"
-                                value={editForm.total_cataract_surgeries ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, total_cataract_surgeries: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-12 px-1 py-1 border border-brand-border rounded text-center"
-                              />
-                              (
-                              <input
-                                type="number"
-                                value={editForm.cataract_surgery_from_other ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, cataract_surgery_from_other: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-12 px-1 py-1 border border-brand-border rounded text-center"
-                              />
-                              )
                             </td>
                             <td className="px-1 py-2 text-center">
                               <input
                                 type="number"
-                                value={editForm.total_received_calls ?? 0}
-                                onChange={(e) => setEditForm({ ...editForm, total_received_calls: Math.max(0, parseInt(e.target.value) || 0) })}
-                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold"
+                                value={editForm.link_clicks ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, link_clicks: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono font-bold text-brand-teal"
+                              />
+                            </td>
+                            <td className="px-1 py-2 text-center">
+                              <input
+                                type="number"
+                                value={editForm.whatsapp_clicks ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, whatsapp_clicks: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono text-emerald-600"
+                              />
+                            </td>
+                            <td className="px-1 py-2 text-center">
+                              <input
+                                type="number"
+                                value={editForm.call_clicks ?? 0}
+                                onChange={(e) => setEditForm({ ...editForm, call_clicks: Math.max(0, parseInt(e.target.value) || 0) })}
+                                className="w-14 px-1 py-1 border border-brand-border rounded text-center font-mono"
                               />
                             </td>
                           </>
                         ) : (
                           <>
-                            <td className="px-3 py-4 text-center font-mono font-bold text-brand-teal">{row.meta_call_to_action}</td>
-                            <td className="px-3 py-4 text-center font-mono">{row.reception_tracking_meta}</td>
-                            <td className="px-3 py-4 text-center font-mono text-brand-red">{row.missed_meta_leads}</td>
-                            <td className="px-3 py-4 text-center font-mono">{row.appointments_from_meta}</td>
-                            <td className="px-3 py-4 text-center font-mono text-brand-amber font-bold">{row.cataract_surgery_from_meta}</td>
-                            <td className="px-3 py-4 text-center font-mono font-bold">{row.total_appointments}</td>
-                            <td className="px-3 py-4 text-center font-mono text-slate-500">
-                              {row.completed} / {row.cancelled} / {row.no_show}
+                            <td className="px-3 py-4 text-left font-bold text-slate-700">{row.campaign_name}</td>
+                            <td className="px-3 py-4 text-center">
+                              <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">
+                                {row.platform}
+                              </span>
                             </td>
-                            <td className="px-3 py-4 text-center font-mono text-brand-navy font-bold">
-                              {row.total_cataract_surgeries} <span className="text-[10px] text-slate-400 font-normal">({row.cataract_surgery_from_other})</span>
-                            </td>
-                            <td className="px-3 py-4 text-center font-mono">{row.total_received_calls}</td>
+                            <td className="px-3 py-4 text-center font-mono">{row.reach}</td>
+                            <td className="px-3 py-4 text-center font-mono">{row.impressions}</td>
+                            <td className="px-3 py-4 text-center font-mono">{row.video_views}</td>
+                            <td className="px-3 py-4 text-center font-mono text-brand-teal font-bold">{row.link_clicks}</td>
+                            <td className="px-3 py-4 text-center font-mono text-emerald-600 font-bold">{row.whatsapp_clicks}</td>
+                            <td className="px-3 py-4 text-center font-mono">{row.call_clicks}</td>
                           </>
                         )}
-
                         <td className="px-4 py-4 whitespace-nowrap text-right">
                           {isEditing ? (
                             <div className="flex items-center justify-end gap-1.5">
@@ -1001,14 +1629,12 @@ export default function AdminPortal() {
                                 onClick={() => handleUpdate(row.id)}
                                 disabled={actionLoading}
                                 className="p-1.5 text-emerald-600 hover:text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-all"
-                                title="Save"
                               >
                                 <Save className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={handleCancelEdit}
                                 className="p-1.5 text-slate-500 hover:text-slate-600 bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
-                                title="Cancel"
                               >
                                 <X className="w-4 h-4" />
                               </button>
@@ -1018,14 +1644,12 @@ export default function AdminPortal() {
                               <button
                                 onClick={() => handleStartEdit(row)}
                                 className="p-1.5 text-slate-500 hover:text-brand-teal bg-slate-50 hover:bg-slate-100 rounded-lg transition-all"
-                                title="Edit"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => handleDelete(row.id, row.report_date)}
+                                onClick={() => handleDelete(row.id, row.metric_date, `campaign: ${row.campaign_name}`)}
                                 className="p-1.5 text-brand-red hover:text-red-700 bg-red-50 hover:bg-red-100 rounded-lg transition-all"
-                                title="Delete"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>

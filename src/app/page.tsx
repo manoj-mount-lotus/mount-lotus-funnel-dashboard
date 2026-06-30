@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { Phone, MousePointerClick, ClipboardCheck, AlertTriangle, Calendar, Award, LogIn, LogOut, Shield, Loader2 } from 'lucide-react';
+import { Phone, MousePointerClick, ClipboardCheck, AlertTriangle, Calendar, Award, LogIn, LogOut, Shield, Loader2, TrendingUp, Filter } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
@@ -215,6 +215,24 @@ export default function PublicDashboard() {
           </div>
         </div>
       </header>
+
+      {/* Toggle Nav Tabs */}
+      <div className="max-w-7xl mx-auto px-6 mt-6 w-full flex gap-2 border-b border-brand-border">
+        <Link
+          href="/funnel"
+          className="py-3 px-6 font-bold text-sm border-b-2 border-transparent text-slate-500 hover:text-brand-navy hover:bg-slate-50/50 transition-all flex items-center gap-2"
+        >
+          <Filter className="w-4 h-4" />
+          KPI Funnel View
+        </Link>
+        <Link
+          href="/"
+          className="py-3 px-6 font-bold text-sm border-b-2 border-brand-teal text-brand-teal transition-all flex items-center gap-2"
+        >
+          <TrendingUp className="w-4 h-4" />
+          Detail Trends
+        </Link>
+      </div>
 
       {/* Date pills */}
       <div className="bg-white border-b border-brand-border shadow-xs sticky top-0 z-10">
