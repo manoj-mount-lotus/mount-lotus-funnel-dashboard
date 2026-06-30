@@ -61,7 +61,7 @@ export default function AdminPortal() {
   const [activeTab, setActiveTab] = useState<'manual' | 'import'>('manual');
 
   // Import states
-  const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/1lfQ7lIrC8V-voHqQTNMKkIDmN3Aw19e6ebZGYZP31E8/edit?usp=sharing');
+  const [sheetUrl, setSheetUrl] = useState('https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6gLXPb580tYi9rlQpKXJGa83MuDhTgMzxhS0ZQeSqCtTV1ipdrPqvwwJq-WcQ7IsVnC5RvcQcw2GA/pub?output=xlsx');
   const [importLoading, setImportLoading] = useState(false);
   const [parsedData, setParsedData] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);

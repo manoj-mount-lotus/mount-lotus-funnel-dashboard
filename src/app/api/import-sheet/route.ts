@@ -79,19 +79,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Google Sheet URL is required' }, { status: 400 });
     }
 
-    // Extract Spreadsheet ID
-    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-    if (!match) {
-      return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
+    let fetchUrl = url;
+
+    // Convert standard /edit URLs to the CSV export URL.
+    // If it is a /pub (published) URL, we can fetch it directly as is.
+    if (url.includes('/edit') && !url.includes('/pub')) {
+      const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+      if (!match) {
+        return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
+      }
+      const spreadsheetId = match[1];
+      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
     }
 
-    const spreadsheetId = match[1];
-    
-    // Construct CSV export URL
-    // We can also append options like &gid=0 if they want the first sheet, or let google handle the default sheet
-    const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv`;
-
-    const response = await fetch(exportUrl, {
+    const response = await fetch(fetchUrl, {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -102,16 +103,15 @@ export async function POST(request: NextRequest) {
     if (!response.ok) {
       if (response.status === 401 || response.status === 403 || response.status === 404) {
         return NextResponse.json({
-          error: 'Access Denied: The Google Sheet is private or not found. Please ensure the sharing settings are set to "Anyone with the link can view".'
+          error: 'Access Denied: The Google Sheet is private or not found. Please ensure the sharing settings are set to "Anyone with the link can view" or "Publish to web".'
         }, { status: 403 });
       }
       return NextResponse.json({ error: `Failed to fetch sheet: Status code ${response.status}` }, { status: 400 });
     }
 
-    const csvText = await response.text();
-    
-    // Parse using xlsx
-    const workbook = XLSX.read(csvText, { type: 'string', raw: true });
+    // Read as ArrayBuffer to support both CSV and XLSX binary formats autodetected by sheetjs
+    const arrayBuffer = await response.arrayBuffer();
+    const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
