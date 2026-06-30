@@ -33,7 +33,7 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
       {/* Main Funnel Layout Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 relative">
-        
+
         {/* Left column - MARKETING & OPERATIONS Brackets (lg:col-span-1) */}
         <div className="hidden lg:flex lg:col-span-1 flex-col justify-between py-2 text-center text-xs font-bold font-mono">
           <div className="flex-1 flex flex-col justify-center items-center relative pr-4">
@@ -52,11 +52,11 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
         {/* Center Funnel Bars (lg:col-span-7) */}
         <div className="lg:col-span-7 space-y-4">
-          
+
           {/* STAGE 1: Awareness */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(0% 0%, 100% 0%, 94% 100%, 6% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(0% 0%, 100% 0%, 94% 100%, 6% 100%)' }}
               className="bg-gradient-to-r from-brand-navy to-slate-800 text-white p-4 h-20 flex items-center justify-between px-[8%]"
             >
               <div className="flex items-center gap-3">
@@ -85,8 +85,8 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 2: Interest */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(6% 0%, 94% 0%, 88% 100%, 12% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(6% 0%, 94% 0%, 88% 100%, 12% 100%)' }}
               className="bg-gradient-to-r from-brand-teal to-teal-700 text-white p-4 h-20 flex items-center justify-between px-[14%]"
             >
               <div className="flex items-center gap-3">
@@ -115,8 +115,8 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 3: Leads */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(12% 0%, 88% 0%, 82% 100%, 18% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(12% 0%, 88% 0%, 82% 100%, 18% 100%)' }}
               className="bg-gradient-to-r from-[#179695] to-teal-500 text-white p-4 h-20 flex items-center justify-between px-[20%]"
             >
               <div className="flex items-center gap-3">
@@ -145,8 +145,8 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 4: Doctor Appointments */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(18% 0%, 82% 0%, 76% 100%, 24% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(18% 0%, 82% 0%, 76% 100%, 24% 100%)' }}
               className="bg-gradient-to-r from-emerald-800 to-emerald-600 text-white p-4 h-20 flex items-center justify-between px-[25%]"
             >
               <div className="flex items-center gap-3">
@@ -175,8 +175,8 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 5: Patient Visits */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(24% 0%, 76% 0%, 70% 100%, 30% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(24% 0%, 76% 0%, 70% 100%, 30% 100%)' }}
               className="bg-gradient-to-r from-emerald-600 to-teal-500 text-white p-4 h-20 flex items-center justify-between px-[30%]"
             >
               <div className="flex items-center gap-3">
@@ -205,8 +205,8 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 6: Testing */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(30% 0%, 70% 0%, 64% 100%, 36% 100%)' }} 
+            <div
+              style={{ clipPath: 'polygon(30% 0%, 70% 0%, 64% 100%, 36% 100%)' }}
               className="bg-gradient-to-r from-teal-500 to-[#4CB5AE] text-white p-4 h-20 flex items-center justify-between px-[35%]"
             >
               <div className="flex items-center gap-3">
@@ -235,22 +235,18 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 7: Conversions */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(36% 0%, 64% 0%, 58% 100%, 42% 100%)' }} 
-              className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white p-4 h-20 flex items-center justify-between px-[39%]"
+            <div
+              style={{ clipPath: 'polygon(36% 0%, 64% 0%, 58% 100%, 42% 100%)' }}
+              className="bg-gradient-to-r from-emerald-500 to-emerald-400 text-white p-4 h-20 flex items-center justify-between px-[43%]"
             >
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/10 rounded-full text-slate-50">
-                  <Eye className="w-5 h-5" />
-                </div>
+
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider">7. Conversions</h4>
-                  <p className="text-[10px] text-emerald-50 font-medium">Admitted / Surgery confirmed</p>
+                  <p className="text-[10px] text-emerald-50 font-medium"><div className="text-lg font-bold font-mono">{fmt(conversions)}</div>
+                    <div className="text-[9px] text-teal-100 uppercase font-bold tracking-wider">Conversions</div>
+                  </p>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-lg font-bold font-mono">{fmt(conversions)}</div>
-                <div className="text-[9px] text-emerald-100 uppercase font-bold tracking-wider">Conversions</div>
               </div>
             </div>
           </div>
@@ -265,22 +261,16 @@ export default function KpiFunnelView({ data }: KpiFunnelViewProps) {
 
           {/* STAGE 8: Retention */}
           <div className="relative group transition-all duration-300">
-            <div 
-              style={{ clipPath: 'polygon(42% 0%, 58% 0%, 52% 100%, 48% 100%)' }} 
-              className="bg-gradient-to-r from-teal-600 to-teal-400 text-white p-4 h-20 flex items-center justify-between px-[42%]"
+            <div
+              style={{ clipPath: 'polygon(36% 0%, 63% 0%, 52% 100%, 47% 100%)' }}
+              className="bg-gradient-to-r from-teal-600 to-teal-400 text-white p-4 h-20 flex items-center justify-between px-[46%]"
             >
               <div className="flex items-center gap-3">
-                <div className="p-2 bg-white/10 rounded-full text-slate-100">
-                  <Users className="w-5 h-5" />
-                </div>
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider">8. Retention</h4>
-                  <p className="text-[9px] text-teal-150 font-medium">Repeat / Referral / Reviews</p>
+                  <div className="text-base font-bold font-mono">{fmt(retention)}</div>
+                  <div className="text-[8px] text-teal-100 uppercase font-bold tracking-wider">Retained</div>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-base font-bold font-mono">{fmt(retention)}</div>
-                <div className="text-[8px] text-teal-100 uppercase font-bold tracking-wider">Retained</div>
               </div>
             </div>
           </div>
