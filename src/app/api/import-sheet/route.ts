@@ -33,8 +33,6 @@ const headerMapping: { [key: string]: string } = {
   'total cataract surgeries': 'total_cataract_surgeries',
   'total cataract surgery from meta': 'cataract_surgery_from_meta',
   'cataract surgery from other': 'cataract_surgery_from_other',
-  
-  // New Operations columns
   'patient visits': 'patient_visits',
   'visits': 'patient_visits',
   'testing completed': 'testing_completed',
@@ -119,7 +117,7 @@ function clampNonNegative(n: number): number {
 
 export async function POST(request: NextRequest) {
   try {
-    // Basic security token check if SYNC_SECRET is set
+    // Validate SYNC_SECRET if configured
     const syncSecret = process.env.SYNC_SECRET;
     if (syncSecret) {
       const authHeader = request.headers.get('Authorization');
@@ -131,148 +129,207 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { url, type } = await request.json();
-    if (!url) {
-      return NextResponse.json({ error: 'Google Sheet URL is required' }, { status: 400 });
+    const body = await request.json();
+
+    // Fallback to legacy URL-based sheet import if url is provided
+    if (body.url) {
+      return handleUrlImport(body.url, body.type);
     }
 
-    // Auto-detect type if not explicitly provided in request body
-    let isCampaign = type === 'campaign';
-    if (!type) {
-      // Determine by URL sheet param or fallback to checking after fetch
-      isCampaign = url.toLowerCase().includes('campaign') || url.toLowerCase().includes('campain');
+    const rawRows: Record<string, unknown>[] = body.rows || [];
+    if (!rawRows.length) {
+      return NextResponse.json({ error: 'No rows provided' }, { status: 400 });
     }
 
-    let fetchUrl = url;
-
-    // Convert standard /edit URLs to the CSV export URL.
-    if (url.includes('/edit') && !url.includes('/pub')) {
-      const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (!match) {
-        return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
-      }
-      const spreadsheetId = match[1];
-      const sheetNameParam = isCampaign ? 'Campain Metrics Daily' : 'Leads';
-      fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetNameParam)}`;
-    }
-
-    const response = await fetch(fetchUrl, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-      next: { revalidate: 0 } // Bypass Next.js cache
-    });
-
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403 || response.status === 404) {
-        return NextResponse.json({
-          error: 'Access Denied: The Google Sheet is private or not found. Please ensure the sharing settings are set to "Anyone with the link can view" or "Publish to web".'
-        }, { status: 403 });
-      }
-      return NextResponse.json({ error: `Failed to fetch sheet: Status code ${response.status}` }, { status: 400 });
-    }
-
-    // Read as ArrayBuffer to support both CSV and XLSX binary formats autodetected by sheetjs
-    const arrayBuffer = await response.arrayBuffer();
-    const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
-    
-    // Auto-detect sheets inside workbook if type is still ambiguous
-    if (!type && !isCampaign) {
-      isCampaign = workbook.SheetNames.some(
-        (name) => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')
-      );
-    }
-
-    const targetSheetName = isCampaign
-      ? (workbook.SheetNames.find(name => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')) || workbook.SheetNames[0])
-      : (workbook.SheetNames.find(name => name.trim().toLowerCase() === 'leads') || workbook.SheetNames[0]);
-
-    const sheet = workbook.Sheets[targetSheetName];
-    const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
-
-    if (rawRows.length === 0) {
-      return NextResponse.json({ error: 'The Google Sheet appears to be empty.' }, { status: 400 });
-    }
-
-    // Map rows to database schema
     const mappedRows: any[] = [];
     const skippedRows: any[] = [];
-    const currentMapping = isCampaign ? campaignHeaderMapping : headerMapping;
-    const dateField = isCampaign ? 'metric_date' : 'report_date';
 
-    for (let idx = 0; idx < rawRows.length; idx++) {
-      const row = rawRows[idx];
+    rawRows.forEach((row, idx) => {
       const mappedRow: any = {};
       let hasData = false;
 
-      for (const [key, value] of Object.entries(row)) {
+      Object.entries(row).forEach(([key, value]) => {
         const normalizedKey = normalizeHeader(key);
-        const dbColumn = currentMapping[normalizedKey];
+        const dbColumn = headerMapping[normalizedKey];
         if (dbColumn) {
-          if (dbColumn === dateField) {
+          if (dbColumn === 'report_date') {
             const parsedDate = parseDateValue(value);
             if (parsedDate) {
               mappedRow[dbColumn] = parsedDate;
               hasData = true;
             }
-          } else if (dbColumn === 'campaign_name' || dbColumn === 'platform') {
-            mappedRow[dbColumn] = value !== null ? String(value).trim() : '';
-            hasData = true;
           } else {
-            // Numeric field
             const numVal = value !== null && value !== '' ? Number(value) : 0;
             mappedRow[dbColumn] = clampNonNegative(isNaN(numVal) ? 0 : numVal);
             hasData = true;
           }
         }
-      }
+      });
 
-      if (mappedRow[dateField]) {
-        if (isCampaign && !mappedRow.campaign_name) {
-          skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: 'Missing Campaign Name' });
-        } else {
-          // Fill default zeros for missing columns to prevent database constraints errors
-          for (const col of Object.values(currentMapping)) {
-            if (col !== dateField && col !== 'campaign_name' && col !== 'platform' && mappedRow[col] === undefined) {
-              mappedRow[col] = 0;
-            }
+      if (mappedRow.report_date) {
+        // Fill missing columns with default 0s
+        Object.values(headerMapping).forEach((col) => {
+          if (col !== 'report_date' && mappedRow[col] === undefined) {
+            mappedRow[col] = 0;
           }
-          mappedRows.push(mappedRow);
-        }
+        });
+        mappedRows.push(mappedRow);
       } else if (hasData) {
-        skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: `Missing or invalid ${isCampaign ? 'Date' : 'Leads Date'}` });
+        skippedRows.push({ rowIndex: idx + 2, rowData: row, reason: 'Missing or invalid Date' });
       }
+    });
+
+    if (!mappedRows.length) {
+      return NextResponse.json({ error: 'No valid rows found' }, { status: 400 });
     }
 
-    // Perform automatic database upsert
-    if (mappedRows.length > 0) {
-      const supabase = await getSupabaseClient();
-      const targetTable = isCampaign ? 'campaign_daily_metrics' : 'daily_funnel_reports';
-      const conflictKeys = isCampaign ? 'metric_date,campaign_name' : 'report_date';
-      
-      const { error: upsertError } = await supabase
-        .from(targetTable)
-        .upsert(mappedRows, { onConflict: conflictKeys });
+    const supabase = await getSupabaseClient();
+    const { error: upsertError } = await supabase
+      .from('daily_funnel_reports')
+      .upsert(mappedRows, { onConflict: 'report_date' });
 
-      if (upsertError) {
-        console.error('Database sync error:', upsertError);
-        return NextResponse.json({ error: `Failed to save synced records: ${upsertError.message}` }, { status: 500 });
-      }
+    if (upsertError) {
+      console.error('Database sync error:', upsertError);
+      return NextResponse.json({ error: `Failed to save synced records: ${upsertError.message}` }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      data: mappedRows,
-      skipped: skippedRows,
-      totalCount: rawRows.length,
       importedCount: mappedRows.length,
-      sheetUsed: targetSheetName,
-      type: isCampaign ? 'campaign' : 'leads'
+      skipped: skippedRows,
     });
 
   } catch (err: any) {
-    console.error('Error fetching/parsing Google Sheet:', err);
-    return NextResponse.json({ error: err.message || 'An unexpected error occurred while parsing the sheet' }, { status: 500 });
+    console.error('Error in import-sheet route:', err);
+    return NextResponse.json({ error: err.message || 'An unexpected error occurred' }, { status: 500 });
   }
+}
+
+// Keep the existing URL-based import logic for fallback / manual admin imports
+async function handleUrlImport(url: string, type?: string): Promise<NextResponse> {
+  let isCampaign = type === 'campaign';
+  if (!type) {
+    isCampaign = url.toLowerCase().includes('campaign') || url.toLowerCase().includes('campain');
+  }
+
+  let fetchUrl = url;
+
+  if (url.includes('/edit') && !url.includes('/pub')) {
+    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    if (!match) {
+      return NextResponse.json({ error: 'Invalid Google Sheet URL format' }, { status: 400 });
+    }
+    const spreadsheetId = match[1];
+    const sheetNameParam = isCampaign ? 'Campain Metrics Daily' : 'Leads';
+    fetchUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetNameParam)}`;
+  }
+
+  const response = await fetch(fetchUrl, {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+    next: { revalidate: 0 }
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403 || response.status === 404) {
+      return NextResponse.json({
+        error: 'Access Denied: The Google Sheet is private or not found. Please ensure the sharing settings are set to "Anyone with the link can view" or "Publish to web".'
+      }, { status: 403 });
+    }
+    return NextResponse.json({ error: `Failed to fetch sheet: Status code ${response.status}` }, { status: 400 });
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array', cellDates: true });
+  
+  if (!type && !isCampaign) {
+    isCampaign = workbook.SheetNames.some(
+      (name) => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')
+    );
+  }
+
+  const targetSheetName = isCampaign
+    ? (workbook.SheetNames.find(name => name.trim().toLowerCase().includes('campaign') || name.trim().toLowerCase().includes('campain')) || workbook.SheetNames[0])
+    : (workbook.SheetNames.find(name => name.trim().toLowerCase() === 'leads') || workbook.SheetNames[0]);
+
+  const sheet = workbook.Sheets[targetSheetName];
+  const rawRows = XLSX.utils.sheet_to_json<any>(sheet, { defval: null });
+
+  if (rawRows.length === 0) {
+    return NextResponse.json({ error: 'The Google Sheet appears to be empty.' }, { status: 400 });
+  }
+
+  const mappedRows: any[] = [];
+  const skippedRows: any[] = [];
+  const currentMapping = isCampaign ? campaignHeaderMapping : headerMapping;
+  const dateField = isCampaign ? 'metric_date' : 'report_date';
+
+  for (let idx = 0; idx < rawRows.length; idx++) {
+    const row = rawRows[idx];
+    const mappedRow: any = {};
+    let hasData = false;
+
+    for (const [key, value] of Object.entries(row)) {
+      const normalizedKey = normalizeHeader(key);
+      const dbColumn = currentMapping[normalizedKey];
+      if (dbColumn) {
+        if (dbColumn === dateField) {
+          const parsedDate = parseDateValue(value);
+          if (parsedDate) {
+            mappedRow[dbColumn] = parsedDate;
+            hasData = true;
+          }
+        } else if (dbColumn === 'campaign_name' || dbColumn === 'platform') {
+          mappedRow[dbColumn] = value !== null ? String(value).trim() : '';
+          hasData = true;
+        } else {
+          const numVal = value !== null && value !== '' ? Number(value) : 0;
+          mappedRow[dbColumn] = clampNonNegative(isNaN(numVal) ? 0 : numVal);
+          hasData = true;
+        }
+      }
+    }
+
+    if (mappedRow[dateField]) {
+      if (isCampaign && !mappedRow.campaign_name) {
+        skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: 'Missing Campaign Name' });
+      } else {
+        for (const col of Object.values(currentMapping) as string[]) {
+          if (col !== dateField && col !== 'campaign_name' && col !== 'platform' && mappedRow[col] === undefined) {
+            mappedRow[col] = 0;
+          }
+        }
+        mappedRows.push(mappedRow);
+      }
+    } else if (hasData) {
+      skippedRows.push({ rowIndex: idx + 1, rowData: row, reason: `Missing or invalid ${isCampaign ? 'Date' : 'Leads Date'}` });
+    }
+  }
+
+  if (mappedRows.length > 0) {
+    const supabase = await getSupabaseClient();
+    const targetTable = isCampaign ? 'campaign_daily_metrics' : 'daily_funnel_reports';
+    const conflictKeys = isCampaign ? 'metric_date,campaign_name' : 'report_date';
+    
+    const { error: upsertError } = await supabase
+      .from(targetTable)
+      .upsert(mappedRows, { onConflict: conflictKeys });
+
+    if (upsertError) {
+      console.error('Database sync error:', upsertError);
+      return NextResponse.json({ error: `Failed to save synced records: ${upsertError.message}` }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: mappedRows,
+    skipped: skippedRows,
+    totalCount: rawRows.length,
+    importedCount: mappedRows.length,
+    sheetUsed: targetSheetName,
+    type: isCampaign ? 'campaign' : 'leads'
+  });
 }
