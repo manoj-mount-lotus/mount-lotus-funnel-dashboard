@@ -49,8 +49,8 @@ export async function getFunnelData(range: DateRange): Promise<FunnelData> {
   const callClicks = sum(campaignRows || [], 'call_clicks');
   const interestTotal = linkClicks + whatsappClicks + callClicks;
 
-  const leads = sum(funnelRows || [], 'total_received_calls');
-  const doctorAppointments = sum(funnelRows || [], 'total_appointments');
+  const leads = sum(funnelRows || [], 'reception_tracking_meta');
+  const doctorAppointments = sum(funnelRows || [], 'appointments_from_meta');
   const patientVisits = sum(funnelRows || [], 'patient_visits');
   const testing = sum(funnelRows || [], 'testing_completed');
   const conversions = sum(funnelRows || [], 'conversions_total');
