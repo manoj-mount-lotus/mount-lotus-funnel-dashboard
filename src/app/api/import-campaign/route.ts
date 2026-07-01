@@ -34,45 +34,55 @@ function norm(s: string): string {
 function parseDateValue(val: any): string | null {
   if (val === undefined || val === null || val === '') return null;
   
-  if (typeof val === 'number') {
-    const date = new Date(Math.round((val - 25569) * 86400 * 1000));
-    if (!isNaN(date.getTime())) {
-      return date.toISOString().split('T')[0];
+  let dateObj: Date | null = null;
+
+  if (val instanceof Date) {
+    dateObj = val;
+  } else if (typeof val === 'number') {
+    dateObj = new Date(Math.round((val - 25569) * 86400 * 1000));
+  } else {
+    const str = String(val).trim();
+    // Check if it is already yyyy-mm-dd
+    const isoMatch = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (isoMatch) {
+      const y = isoMatch[1];
+      const m = isoMatch[2].padStart(2, '0');
+      const d = isoMatch[3].padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const parsed = Date.parse(str);
+    if (!isNaN(parsed)) {
+      dateObj = new Date(parsed);
     }
   }
-  
-  const str = String(val).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  const parsed = Date.parse(str);
-  if (!isNaN(parsed)) {
-    const d = new Date(parsed);
-    return d.toISOString().split('T')[0];
+  if (dateObj && !isNaN(dateObj.getTime())) {
+    // Adjust for the local timezone offset to get the intended calendar date
+    const offsetMs = dateObj.getTimezoneOffset() * 60000;
+    const adjustedDate = new Date(dateObj.getTime() - offsetMs);
+    const y = adjustedDate.getUTCFullYear();
+    const m = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(adjustedDate.getUTCDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
-  
+
+  const str = String(val).trim();
   const parts = str.split(/[-/.]/);
   if (parts.length === 3) {
-    let day = parseInt(parts[0], 10);
-    let month = parseInt(parts[1], 10);
-    let year = parseInt(parts[2], 10);
+    let p1 = parseInt(parts[0], 10);
+    let p2 = parseInt(parts[1], 10);
+    let p3 = parseInt(parts[2], 10);
     
-    if (year < 100) year += 2000;
+    if (p3 < 100) p3 += 2000;
     
-    if (day <= 31 && month <= 12 && year > 1900) {
-      const d = new Date(Date.UTC(year, month - 1, day));
-      if (!isNaN(d.getTime())) {
-        return d.toISOString().split('T')[0];
-      }
+    if (p1 <= 31 && p2 <= 12 && p3 > 1900) {
+      return `${p3}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
     }
-    
-    if (day <= 12 && month <= 31 && year > 1900) {
-      const d = new Date(Date.UTC(year, day - 1, month));
-      if (!isNaN(d.getTime())) {
-        return d.toISOString().split('T')[0];
-      }
+    if (p1 <= 12 && p2 <= 31 && p3 > 1900) {
+      return `${p3}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
     }
   }
-  
+
   return null;
 }
 
